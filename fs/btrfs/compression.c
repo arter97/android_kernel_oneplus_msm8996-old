@@ -751,6 +751,7 @@ static struct {
 static const struct btrfs_compress_op * const btrfs_compress_op[] = {
 	&btrfs_zlib_compress,
 	&btrfs_lzo_compress,
+	&btrfs_lz4_compress,
 };
 
 void __init btrfs_init_compress(void)
