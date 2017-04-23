@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Red Hat.  All rights reserved.
+ * Copyright (C) 2016 Fujitsu.  All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
@@ -16,21 +16,9 @@
  * Boston, MA 021110-1307, USA.
  */
 
-#ifndef __XATTR__
-#define __XATTR__
+#ifndef __BTRFS_DEDUPE__
+#define __BTRFS_DEDUPE__
 
-#include <linux/xattr.h>
-
-extern const struct xattr_handler *btrfs_xattr_handlers[];
-
-extern ssize_t __btrfs_getxattr(struct inode *inode, const char *name,
-		void *buffer, size_t size);
-extern int __btrfs_setxattr(struct btrfs_trans_handle *trans,
-			    struct inode *inode, const char *name,
-			    const void *value, size_t size, int flags);
-
-extern int btrfs_xattr_security_init(struct btrfs_trans_handle *trans,
-				     struct inode *inode, struct inode *dir,
-				     const struct qstr *qstr);
-
-#endif /* __XATTR__ */
+/* later in-band dedupe will expand this struct */
+struct btrfs_dedupe_hash;
+#endif
