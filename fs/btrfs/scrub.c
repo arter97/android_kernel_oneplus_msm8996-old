@@ -274,7 +274,7 @@ static int scrub_pages(struct scrub_ctx *sctx, u64 logical, u64 len,
 		       u64 physical, struct btrfs_device *dev, u64 flags,
 		       u64 gen, int mirror_num, u8 *csum, int force,
 		       u64 physical_for_dev_replace);
-static void scrub_bio_end_io(struct bio *bio);
+static void scrub_bio_end_io(struct bio *bio, int err);
 static void scrub_bio_end_io_worker(struct btrfs_work *work);
 static void scrub_block_complete(struct scrub_block *sblock);
 static void scrub_remap_extent(struct btrfs_fs_info *fs_info,
@@ -291,7 +291,7 @@ static void scrub_free_wr_ctx(struct scrub_wr_ctx *wr_ctx);
 static int scrub_add_page_to_wr_bio(struct scrub_ctx *sctx,
 				    struct scrub_page *spage);
 static void scrub_wr_submit(struct scrub_ctx *sctx);
-static void scrub_wr_bio_end_io(struct bio *bio);
+static void scrub_wr_bio_end_io(struct bio *bio, int err);
 static void scrub_wr_bio_end_io_worker(struct btrfs_work *work);
 static int write_page_nocow(struct scrub_ctx *sctx,
 			    u64 physical_for_dev_replace, struct page *page);
@@ -1425,11 +1425,11 @@ struct scrub_bio_ret {
 	int error;
 };
 
-static void scrub_bio_wait_endio(struct bio *bio)
+static void scrub_bio_wait_endio(struct bio *bio, int error)
 {
 	struct scrub_bio_ret *ret = bio->bi_private;
 
-	ret->error = bio->bi_error;
+	ret->error = error;
 	complete(&ret->event);
 }
 
@@ -1505,9 +1505,8 @@ static void scrub_recheck_block(struct btrfs_fs_info *fs_info,
 				sblock->no_io_error_seen = 0;
 		} else {
 			bio->bi_iter.bi_sector = page->physical >> 9;
-			bio_set_op_attrs(bio, REQ_OP_READ, 0);
 
-			if (btrfsic_submit_bio_wait(bio))
+			if (btrfsic_submit_bio_wait(READ, bio))
 				sblock->no_io_error_seen = 0;
 		}
 
@@ -1584,7 +1583,6 @@ static int scrub_repair_page_from_good_copy(struct scrub_block *sblock_bad,
 			return -EIO;
 		bio->bi_bdev = page_bad->dev->bdev;
 		bio->bi_iter.bi_sector = page_bad->physical >> 9;
-		bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
 
 		ret = bio_add_page(bio, page_good->page, PAGE_SIZE, 0);
 		if (PAGE_SIZE != ret) {
@@ -1592,7 +1590,7 @@ static int scrub_repair_page_from_good_copy(struct scrub_block *sblock_bad,
 			return -EIO;
 		}
 
-		if (btrfsic_submit_bio_wait(bio)) {
+		if (btrfsic_submit_bio_wait(WRITE, bio)) {
 			btrfs_dev_stat_inc_and_print(page_bad->dev,
 				BTRFS_DEV_STAT_WRITE_ERRS);
 			btrfs_dev_replace_stats_inc(
@@ -1686,7 +1684,6 @@ again:
 		bio->bi_end_io = scrub_wr_bio_end_io;
 		bio->bi_bdev = sbio->dev->bdev;
 		bio->bi_iter.bi_sector = sbio->physical >> 9;
-		bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
 		sbio->err = 0;
 	} else if (sbio->physical + sbio->page_count * PAGE_SIZE !=
 		   spage->physical_for_dev_replace ||
@@ -1734,15 +1731,15 @@ static void scrub_wr_submit(struct scrub_ctx *sctx)
 	 * orders the requests before sending them to the driver which
 	 * doubled the write performance on spinning disks when measured
 	 * with Linux 3.5 */
-	btrfsic_submit_bio(sbio->bio);
+	btrfsic_submit_bio(WRITE, sbio->bio);
 }
 
-static void scrub_wr_bio_end_io(struct bio *bio)
+static void scrub_wr_bio_end_io(struct bio *bio, int err)
 {
 	struct scrub_bio *sbio = bio->bi_private;
 	struct btrfs_fs_info *fs_info = sbio->dev->dev_root->fs_info;
 
-	sbio->err = bio->bi_error;
+	sbio->err = err;
 	sbio->bio = bio;
 
 	btrfs_init_work(&sbio->work, btrfs_scrubwrc_helper,
@@ -2044,7 +2041,7 @@ static void scrub_submit(struct scrub_ctx *sctx)
 	sbio = sctx->bios[sctx->curr];
 	sctx->curr = -1;
 	scrub_pending_bio_inc(sctx);
-	btrfsic_submit_bio(sbio->bio);
+	btrfsic_submit_bio(READ, sbio->bio);
 }
 
 static int scrub_add_page_to_rd_bio(struct scrub_ctx *sctx,
@@ -2091,7 +2088,6 @@ again:
 		bio->bi_end_io = scrub_bio_end_io;
 		bio->bi_bdev = sbio->dev->bdev;
 		bio->bi_iter.bi_sector = sbio->physical >> 9;
-		bio_set_op_attrs(bio, REQ_OP_READ, 0);
 		sbio->err = 0;
 	} else if (sbio->physical + sbio->page_count * PAGE_SIZE !=
 		   spage->physical ||
@@ -2123,12 +2119,12 @@ again:
 	return 0;
 }
 
-static void scrub_missing_raid56_end_io(struct bio *bio)
+static void scrub_missing_raid56_end_io(struct bio *bio, int error)
 {
 	struct scrub_block *sblock = bio->bi_private;
 	struct btrfs_fs_info *fs_info = sblock->sctx->dev_root->fs_info;
 
-	if (bio->bi_error)
+	if (error)
 		sblock->no_io_error_seen = 0;
 
 	bio_put(bio);
@@ -2331,12 +2327,12 @@ leave_nomem:
 	return 0;
 }
 
-static void scrub_bio_end_io(struct bio *bio)
+static void scrub_bio_end_io(struct bio *bio, int err)
 {
 	struct scrub_bio *sbio = bio->bi_private;
 	struct btrfs_fs_info *fs_info = sbio->dev->dev_root->fs_info;
 
-	sbio->err = bio->bi_error;
+	sbio->err = err;
 	sbio->bio = bio;
 
 	btrfs_queue_work(fs_info->scrub_workers, &sbio->work);
@@ -2747,11 +2743,11 @@ static void scrub_parity_bio_endio_worker(struct btrfs_work *work)
 	scrub_pending_bio_dec(sctx);
 }
 
-static void scrub_parity_bio_endio(struct bio *bio)
+static void scrub_parity_bio_endio(struct bio *bio, int error)
 {
 	struct scrub_parity *sparity = (struct scrub_parity *)bio->bi_private;
 
-	if (bio->bi_error)
+	if (error)
 		bitmap_or(sparity->ebitmap, sparity->ebitmap, sparity->dbitmap,
 			  sparity->nsectors);
 
@@ -4331,7 +4327,7 @@ static int copy_nocow_pages_for_inode(u64 inum, u64 offset, u64 root,
 		return PTR_ERR(inode);
 
 	/* Avoid truncate/dio/punch hole.. */
-	inode_lock(inode);
+	mutex_lock(&inode->i_mutex);
 	inode_dio_wait(inode);
 
 	physical_for_dev_replace = nocow_ctx->physical_for_dev_replace;
@@ -4410,7 +4406,7 @@ next_page:
 	}
 	ret = COPY_COMPLETE;
 out:
-	inode_unlock(inode);
+	mutex_unlock(&inode->i_mutex);
 	iput(inode);
 	return ret;
 }
@@ -4440,7 +4436,6 @@ static int write_page_nocow(struct scrub_ctx *sctx,
 	bio->bi_iter.bi_size = 0;
 	bio->bi_iter.bi_sector = physical_for_dev_replace >> 9;
 	bio->bi_bdev = dev->bdev;
-	bio_set_op_attrs(bio, REQ_OP_WRITE, WRITE_SYNC);
 	ret = bio_add_page(bio, page, PAGE_SIZE, 0);
 	if (ret != PAGE_SIZE) {
 leave_with_eio:
@@ -4449,7 +4444,7 @@ leave_with_eio:
 		return -EIO;
 	}
 
-	if (btrfsic_submit_bio_wait(bio))
+	if (btrfsic_submit_bio_wait(WRITE_SYNC, bio))
 		goto leave_with_eio;
 
 	bio_put(bio);

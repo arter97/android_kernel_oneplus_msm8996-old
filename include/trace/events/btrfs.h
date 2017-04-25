@@ -6,7 +6,7 @@
 
 #include <linux/writeback.h>
 #include <linux/tracepoint.h>
-#include <trace/events/mmflags.h>
+#include <trace/events/gfpflags.h>
 
 struct btrfs_root;
 struct btrfs_fs_info;

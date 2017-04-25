@@ -1470,7 +1470,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	parent_root = BTRFS_I(parent_inode)->root;
 	record_root_in_trans(trans, parent_root, 0);
 
-	cur_time = current_time(parent_inode);
+	cur_time = current_fs_time(parent_inode->i_sb);
 
 	/*
 	 * insert the directory item
@@ -1626,7 +1626,7 @@ static noinline int create_pending_snapshot(struct btrfs_trans_handle *trans,
 	btrfs_i_size_write(parent_inode, parent_inode->i_size +
 					 dentry->d_name.len * 2);
 	parent_inode->i_mtime = parent_inode->i_ctime =
-		current_time(parent_inode);
+		current_fs_time(parent_inode->i_sb);
 	ret = btrfs_update_inode_fallback(trans, parent_root, parent_inode);
 	if (ret) {
 		btrfs_abort_transaction(trans, ret);
@@ -1782,7 +1782,9 @@ static void do_async_commit(struct work_struct *work)
 	 * Tell lockdep about it.
 	 */
 	if (ac->newtrans->type & __TRANS_FREEZABLE)
-		__sb_writers_acquired(ac->root->fs_info->sb, SB_FREEZE_FS);
+		rwsem_acquire_read(
+		     &ac->root->fs_info->sb->s_writers.lock_map[SB_FREEZE_FS-1],
+		     0, 1, _THIS_IP_);
 
 	current->journal_info = ac->newtrans;
 
@@ -1821,7 +1823,9 @@ int btrfs_commit_transaction_async(struct btrfs_trans_handle *trans,
 	 * async commit thread will be the one to unlock it.
 	 */
 	if (ac->newtrans->type & __TRANS_FREEZABLE)
-		__sb_writers_release(root->fs_info->sb, SB_FREEZE_FS);
+		rwsem_release(
+			&root->fs_info->sb->s_writers.lock_map[SB_FREEZE_FS-1],
+			1, _THIS_IP_);
 
 	schedule_work(&ac->work);
 
