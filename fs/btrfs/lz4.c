@@ -59,8 +59,8 @@ static struct list_head *lz4_alloc_workspace(void)
 		return ERR_PTR(-ENOMEM);
 
 	workspace->mem = vmalloc(LZ4_MEM_COMPRESS);
-	workspace->buf = vmalloc(lz4_compressbound(PAGE_CACHE_SIZE));
-	workspace->cbuf = vmalloc(lz4_compressbound(PAGE_CACHE_SIZE));
+	workspace->buf = vmalloc(LZ4_compressBound(PAGE_CACHE_SIZE));
+	workspace->cbuf = vmalloc(LZ4_compressBound(PAGE_CACHE_SIZE));
 	if (!workspace->mem || !workspace->buf || !workspace->cbuf)
 		goto fail;
 
@@ -142,11 +142,11 @@ static int lz4_compress_pages(struct list_head *ws,
 	/* compress at most one page of data each time */
 	in_len = min(len, PAGE_CACHE_SIZE);
 	while (tot_in < len) {
-		ret = lz4_compress(data_in, in_len, workspace->cbuf,
-				       &out_len, workspace->mem);
-		if (ret != LZ4_E_OK) {
-			printk(KERN_DEBUG "BTRFS: lz4 compress in loop returned %d\n",
-			       ret);
+		out_len = LZ4_compress_default(data_in, workspace->cbuf, in_len,
+				INT_MAX, workspace->mem);
+		if (!out_len) {
+			printk(KERN_DEBUG "BTRFS: lz4 compress in loop returned %zd\n",
+			       out_len);
 			ret = -1;
 			goto out;
 		}
@@ -355,12 +355,12 @@ cont:
 			}
 		}
 
-		out_len = lz4_compressbound(PAGE_CACHE_SIZE);
-		ret = lz4_decompress_unknownoutputsize(buf, in_len,
-						workspace->buf, &out_len);
+		out_len = LZ4_compressBound(PAGE_CACHE_SIZE);
+		out_len = LZ4_decompress_safe(buf, workspace->buf, in_len, out_len);
+
 		if (need_unmap)
 			kunmap(pages_in[page_in_index - 1]);
-		if (ret != LZ4_E_OK) {
+		if (out_len <= 0) {
 			printk(KERN_WARNING "BTRFS: lz4 decompress failed\n");
 			ret = -1;
 			break;
@@ -405,9 +405,8 @@ static int lz4_decompress_page(struct list_head *ws,
 	data_in += LZ4_LEN;
 
 	out_len = PAGE_CACHE_SIZE;
-	ret = lz4_decompress_unknownoutputsize(data_in, in_len,
-				workspace->buf, &out_len);
-	if (ret != LZ4_E_OK) {
+	out_len = LZ4_decompress_safe(data_in, workspace->buf, in_len, out_len);
+	if (out_len <= 0) {
 		printk(KERN_WARNING "BTRFS: lz4 decompress failed!\n");
 		ret = -1;
 		goto out;
