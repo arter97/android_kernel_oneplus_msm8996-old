@@ -4460,6 +4460,7 @@ static enum power_supply_property fg_power_props[] = {
 	POWER_SUPPLY_PROP_ENABLE_JEITA_DETECTION,
 	POWER_SUPPLY_PROP_BATTERY_INFO,
 	POWER_SUPPLY_PROP_BATTERY_INFO_ID,
+	POWER_SUPPLY_PROP_BATTERY_HEALTH,
 };
 
 static int fg_power_get_property(struct power_supply *psy,
@@ -4522,6 +4523,15 @@ static int fg_power_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_RESISTANCE_ID:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_ID);
+		break;
+	case POWER_SUPPLY_PROP_BATTERY_HEALTH:
+		if (chip->use_external_fg && external_fg
+				&& external_fg->get_batt_health)
+			val->intval = external_fg->get_batt_health();
+		else if (get_extern_fg_regist_done() == false)
+			val->intval = -1;
+		else
+			val->intval = -1;
 		break;
 	case POWER_SUPPLY_PROP_UPDATE_NOW:
 		val->intval = 0;
