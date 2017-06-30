@@ -1556,7 +1556,19 @@ endif
 
 KBUILD_CPPFLAGS += $(CDEFINES)
 
-EXTRA_CFLAGS += -Wno-unused-function -Wno-unused-variable
+# Currently, for versions of gcc which support it, the kernel Makefile
+# is disabling the maybe-uninitialized warning.  Re-enable it for the
+# WLAN driver.  Note that we must use EXTRA_CFLAGS here so that it
+# will override the kernel settings.
+ifeq ($(call cc-option-yn, -Wmaybe-uninitialized),y)
+EXTRA_CFLAGS += -Wmaybe-uninitialized
+endif
+
+ifeq ($(call cc-option-yn, -Wmisleading-indentation),y)
+EXTRA_CFLAGS += -Wno-misleading-indentation
+endif
+
+EXTRA_CFLAGS += -Wno-error
 
 # If the module name is not "wlan", then the define MULTI_IF_NAME to be the
 # same a the QCA CHIP name. The host driver will then append MULTI_IF_NAME to
