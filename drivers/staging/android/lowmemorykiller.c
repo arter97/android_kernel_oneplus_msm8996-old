@@ -524,13 +524,8 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 
 		task_lock(selected);
 		send_sig(SIGKILL, selected, 0);
-		/*
-		 * FIXME: lowmemorykiller shouldn't abuse global OOM killer
-		 * infrastructure. There is no real reason why the selected
-		 * task should have access to the memory reserves.
-		 */
 		if (selected->mm)
-			mark_oom_victim(selected);
+			set_tsk_thread_flag(selected, TIF_MEMDIE);
 		task_unlock(selected);
 		cache_size = other_file * (long)(PAGE_SIZE / 1024);
 		cache_limit = minfree * (long)(PAGE_SIZE / 1024);
@@ -590,8 +585,7 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 static struct shrinker lowmem_shrinker = {
 	.scan_objects = lowmem_scan,
 	.count_objects = lowmem_count,
-	.seeks = DEFAULT_SEEKS * 16,
-	.flags = SHRINKER_LMK
+	.seeks = DEFAULT_SEEKS * 16
 };
 
 static int __init lowmem_init(void)
