@@ -43,10 +43,7 @@
 };
 
 &uartblsp2dm1 {
-	status = "ok";
-	pinctrl-names = "uart_active", "uart_deactive";
-	pinctrl-0 = <&uart_console_active>;
-	pinctrl-1 = <&uart_console_deactive>;
+	status = "disabled";
 };
 
 &sdhc_1 {
@@ -622,6 +619,7 @@
 			gpios = <&pm8994_gpios 3 0x1>;
 			linux,input-type = <1>;
 			linux,code = <115>;
+			gpio-key,wakeup;
 			debounce-interval = <15>;
 		};
 
@@ -630,6 +628,7 @@
 			gpios = <&pm8994_gpios 2 0x1>;
 			linux,input-type = <1>;
 			linux,code = <114>;
+			gpio-key,wakeup;
 			debounce-interval = <15>;
 		};
 
